@@ -1,0 +1,4 @@
+package trainingWithTasks
+
+func main
+

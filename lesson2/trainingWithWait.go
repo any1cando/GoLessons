@@ -13,7 +13,9 @@ const (
 )
 
 func doWork(in int, wg *sync.WaitGroup) {
-	defer wg.Done() // Уменьшаем счетчик на 1
+	defer wg.Done() // Уменьшаем счетчик на 1 | defer откладывает вызов того, что мы написали через пробел от него
+	// до тех пор, пока сама функция doWork не завершит свою работу
+
 	for j := 0; j < iterationsNum; j++ {
 		fmt.Printf(formatWork(in, j))
 		time.Sleep(time.Millisecond)
@@ -30,7 +32,6 @@ func main() {
 		wg.Add(1) // Добавляем 1 к счетчику
 		go doWork(i, wg)
 	}
-	time.Sleep(time.Millisecond)
 	wg.Wait() // Ожидаем, пока wg.Done() не приведёт счетчик к 0
 }
 
