@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"maps"
 	"slices"
 	"sync"
 )
@@ -27,9 +29,6 @@ func RunPipeline(cmds ...cmd) {
 	waitGroup.Wait()
 	// TODO: А будет ли какое-то возвращаемое значение у функции RunPipeline??
 }
-
-// TODO: Нужно отрисовать флоу того, как это все протекает на схеме визуально, потому что я
-// TODO: не понимаю, кто / кого / за кем вызывает и в какой последовательности
 
 func SelectUsers(in, out chan interface{}) {
 	wgForSelectUsers := &sync.WaitGroup{}
@@ -64,7 +63,7 @@ func SelectMessages(in, out chan interface{}) {
 
 	for {
 		user, ok := <-in
-		callFunction := func(users ...User) {
+		callFunctionSelectMessages := func(users ...User) {
 			defer wgForSelectMessages.Done()
 			messagesWeGot, err := GetMessages(users...)
 			if err != nil {
@@ -77,13 +76,13 @@ func SelectMessages(in, out chan interface{}) {
 		}
 		if ok {
 			channelForMaxUsers <- user.(User)
-			if len(channelForMaxUsers) == 2 {
+			if len(channelForMaxUsers) == GetMessagesMaxUsersBatch {
 				wgForSelectMessages.Add(1)
-				go callFunction(<-channelForMaxUsers, <-channelForMaxUsers)
+				go callFunctionSelectMessages(<-channelForMaxUsers, <-channelForMaxUsers)
 			}
 		} else if len(channelForMaxUsers) == 1 {
 			wgForSelectMessages.Add(1)
-			go callFunction(<-channelForMaxUsers)
+			go callFunctionSelectMessages(<-channelForMaxUsers)
 		} else {
 			break
 		}
@@ -94,12 +93,80 @@ func SelectMessages(in, out chan interface{}) {
 	// 	out - MsgID
 }
 
-//func CheckSpam(in, out chan interface{}) {
-//	// in - MsgID
-//	// out - MsgData
-//}
-//
-//func CombineResults(in, out chan interface{}) {
-//	// in - MsgData
-//	// out - string
-//}
+func CheckSpam(in, out chan interface{}) {
+	// in - MsgID
+	mutexForSpam := &sync.Mutex{}
+	conditionalMutex := sync.NewCond(mutexForSpam)
+	counterForRunningCoroutines := 0
+	waitGroup := &sync.WaitGroup{}
+
+	// TODO: Как подсчитывать количество запущенных корутин именно в этой функции? Мьютекс?
+	for messageId := range in {
+
+		mutexForSpam.Lock()
+		for counterForRunningCoroutines == HasSpamMaxAsyncRequests {
+			conditionalMutex.Wait()
+		}
+		counterForRunningCoroutines++
+		mutexForSpam.Unlock()
+		waitGroup.Add(1)
+
+		go func() {
+			defer waitGroup.Done()
+
+			messageCheckOnSpam, err := HasSpam(messageId.(MsgID))
+			if err != nil {
+				// ошибка, что-то с ней делаем
+				mutexForSpam.Lock()
+				counterForRunningCoroutines--
+				conditionalMutex.Signal()
+				mutexForSpam.Unlock()
+				return
+			}
+
+			mutexForSpam.Lock()
+			counterForRunningCoroutines--
+			conditionalMutex.Signal()
+			mutexForSpam.Unlock()
+
+			out <- MsgData{messageId.(MsgID), messageCheckOnSpam}
+		}()
+	}
+
+	waitGroup.Wait()
+
+	// out - MsgData
+}
+
+func CombineResults(in, out chan interface{}) {
+	// in - MsgData
+	allMessagesDataTrue := map[MsgID]bool{}
+	allMessagesDataFalse := map[MsgID]bool{}
+
+	for messageData := range in {
+
+		if messageData.(MsgData).HasSpam {
+			allMessagesDataTrue[messageData.(MsgData).ID] = messageData.(MsgData).HasSpam
+		} else {
+			allMessagesDataFalse[messageData.(MsgData).ID] = messageData.(MsgData).HasSpam
+		}
+	}
+
+	keysForTrue := slices.Collect(maps.Keys(allMessagesDataTrue))
+	slices.Sort(keysForTrue)
+
+	for _, messageId := range keysForTrue {
+		finalString := fmt.Sprintf("true %v", messageId)
+		out <- finalString
+	}
+
+	keysForFalse := slices.Collect(maps.Keys(allMessagesDataFalse))
+	slices.Sort(keysForFalse)
+
+	for _, messageId := range keysForFalse {
+		finalString := fmt.Sprintf("false %v", messageId)
+		out <- finalString
+	}
+
+	// out - string
+}
