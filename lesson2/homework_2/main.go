@@ -27,7 +27,6 @@ func RunPipeline(cmds ...cmd) {
 		in = out
 	}
 	waitGroup.Wait()
-	// TODO: А будет ли какое-то возвращаемое значение у функции RunPipeline??
 }
 
 func SelectUsers(in, out chan interface{}) {
