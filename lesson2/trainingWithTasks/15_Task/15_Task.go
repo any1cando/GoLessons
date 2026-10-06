@@ -10,90 +10,118 @@
 // - Выведи число обработанных заказов и причину остановки.
 // Точное число результатов здесь может различаться. Главное — программа завершается, не зависает
 // и не оставляет работников заблокированными.
-// TODO: Доделать задачу с ПОНИМАНИЕМ
+
 package main
 
 import (
-	context2 "context"
+	"context"
 	"fmt"
 	"sync"
+	"time"
 )
 
 type Order struct {
 	ID     int
-	amount float64
+	Amount float64
 }
 
-func workForWorker(chanRead <-chan Order, chanWrite chan<- Order, wg *sync.WaitGroup, context context2.Context) error {
+func worker(ctx context.Context, orders <-chan Order, results chan<- Order, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	select {
-	case <-context.Done():
-		return context.Err()
+	for {
+		var orderInFunction Order
 
-	case order := <-chanRead:
-		order.amount *= 0.9
-		chanWrite <- order
+		// Ждём заказ или отмену.
+		select {
+		case <-ctx.Done():
+			return
+		case nextOrder, ok := <-orders:
+			if !ok {
+				return
+			}
+			orderInFunction = nextOrder
+		}
+
+		// Имитируем обработку, которую можно прервать.
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(100 * time.Millisecond):
+		}
+
+		orderInFunction.Amount *= 0.9
+
+		// Отправляем результат или завершаемся при отмене.
+		select {
+		case <-ctx.Done():
+			return
+		case results <- orderInFunction:
+		}
 	}
 }
-
-func printResult(orderToPrint Order) {
-	fmt.Printf("Заказ с номером %d: результат - %f\n", orderToPrint.ID, orderToPrint.amount)
-}
-
-// TODO: Доделать задачку
 
 func main() {
-	channelForOrders := make(chan Order)
-	channelForResults := make(chan Order)
-	waitGroup := &sync.WaitGroup{}
-	myContext, cancel := context2.WithCancel(context2.Background())
+	// Вставь сюда свой список из 100 заказов.
+	orders := []Order{
+		{1, 115},
+		{2, 325},
+		{3, 125},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 350*time.Millisecond)
 	defer cancel()
 
-	listWithOrders := []Order{
-		{1, 115}, {2, 325}, {3, 125}, {4, 545}, {5, 875},
-		{6, 576}, {7, 512}, {8, 532}, {9, 55}, {10, 50},
-		{11, 240}, {12, 680}, {13, 135}, {14, 920}, {15, 410},
-		{16, 765}, {17, 180}, {18, 350}, {19, 615}, {20, 490},
-		{21, 120}, {22, 830}, {23, 275}, {24, 640}, {25, 950},
-		{26, 305}, {27, 470}, {28, 155}, {29, 720}, {30, 580},
-		{31, 210}, {32, 895}, {33, 360}, {34, 445}, {35, 130},
-		{36, 670}, {37, 525}, {38, 980}, {39, 185}, {40, 750},
-		{41, 290}, {42, 430}, {43, 810}, {44, 165}, {45, 595},
-		{46, 340}, {47, 705}, {48, 225}, {49, 860}, {50, 480},
-		{51, 145}, {52, 620}, {53, 390}, {54, 935}, {55, 260},
-		{56, 555}, {57, 785}, {58, 195}, {59, 450}, {60, 690},
-		{61, 310}, {62, 845}, {63, 175}, {64, 560}, {65, 995},
-		{66, 235}, {67, 740}, {68, 405}, {69, 150}, {70, 630},
-		{71, 870}, {72, 285}, {73, 510}, {74, 960}, {75, 320},
-		{76, 655}, {77, 140}, {78, 790}, {79, 465}, {80, 220},
-		{81, 905}, {82, 375}, {83, 600}, {84, 170}, {85, 825},
-		{86, 495}, {87, 250}, {88, 710}, {89, 365}, {90, 940},
-		{91, 200}, {92, 550}, {93, 880}, {94, 335}, {95, 660},
-		{96, 425}, {97, 160}, {98, 770}, {99, 515}, {100, 1000},
+	channelForOrders := make(chan Order)
+	channelForResults := make(chan Order)
+
+	var workersWG sync.WaitGroup
+	var senderWG sync.WaitGroup
+
+	// Три работника.
+	for i := 0; i < 3; i++ {
+		workersWG.Add(1)
+		go worker(ctx, channelForOrders, channelForResults, &workersWG)
 	}
 
-	for i := 1; i <= 3; i++ {
-		waitGroup.Add(1)
-		go workForWorker(channelForOrders, channelForResults, waitGroup, myContext)
-	}
-
+	// Отправитель заказов тоже учитывает отмену.
+	senderWG.Add(1)
 	go func() {
-		for _, order := range listWithOrders {
-			channelForOrders <- order
+		defer senderWG.Done()
+		defer close(channelForOrders)
+
+		for _, order := range orders {
+			select {
+			case <-ctx.Done():
+				return
+			case channelForOrders <- order:
+			}
 		}
-		close(channelForOrders)
-	}() // хороший паттерн, который заключается в том, что мы передаем инфу работникам и под конец этой горутины
-	// закрываем канал, чтобы не было deadlock
+	}()
 
+	// Когда отправитель и работники завершились,
+	// новых результатов больше не будет.
 	go func() {
-		waitGroup.Wait()
+		senderWG.Wait()
+		workersWG.Wait()
 		close(channelForResults)
 	}()
 
-	for resultString := range channelForResults {
-		printResult(resultString)
+	processed := 0
+
+	for result := range channelForResults {
+		processed++
+		fmt.Printf(
+			"Заказ №%d: стоимость со скидкой — %.2f\n",
+			result.ID,
+			result.Amount,
+		)
 	}
 
-	fmt.Println("Программа завершена")
+	fmt.Println("Получено результатов:", processed)
+
+	if err := ctx.Err(); err != nil {
+		fmt.Println("Причина остановки:", err)
+	} else {
+		fmt.Println("Все заказы обработаны")
+	}
 }
