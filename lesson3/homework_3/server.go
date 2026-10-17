@@ -11,6 +11,9 @@ import (
 	"strings"
 )
 
+
+var pathToFile = "dataset.xml"
+
 type UserXML struct {
 	ID        int    `xml:"id"`
 	FirstName string `xml:"first_name"`
@@ -178,7 +181,7 @@ func SearchServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, err := os.Open("dataset.xml")
+	file, err := os.Open(pathToFile)
 	if err != nil {
 		setErrorStatus(w, http.StatusInternalServerError, "Internal Server Error")
 		return
