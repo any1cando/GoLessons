@@ -28,6 +28,28 @@ func main() {
 	router.HandleFunc("/tasks/{id}", myHandler.ChangeTask).Methods("PUT")
 	router.HandleFunc("/tasks/{id}", myHandler.DeleteTask).Methods("DELETE")
 
+	// Подходящего пути нет
+	router.NotFoundHandler = http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			handler.EncodeMessageAndCheckError(
+				w,
+				http.StatusNotFound,
+				handler.Error{Text: "Not Found"},
+			)
+		},
+	)
+
+	// Подходящего метода нет
+	router.MethodNotAllowedHandler = http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			handler.EncodeMessageAndCheckError(
+				w,
+				http.StatusMethodNotAllowed,
+				handler.Error{Text: "Method Not Allowed"},
+			)
+		},
+	)
+
 	myServer := http.Server{
 		Addr:         ":8080",
 		Handler:      &myHandler,

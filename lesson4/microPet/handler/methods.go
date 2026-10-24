@@ -14,6 +14,49 @@ import (
 	"github.com/gorilla/mux"
 )
 
+func EncodeMessageAndCheckError(w http.ResponseWriter, statusCode int, infoToEncode any) {
+	var buffer bytes.Buffer
+
+	err := json.NewEncoder(&buffer).Encode(infoToEncode)
+	if err != nil {
+		responseError := Error{Text: "Internal Server Error"}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+
+		err = json.NewEncoder(w).Encode(responseError)
+		if err != nil {
+			fmt.Println("Ошибку не удалось отправить")
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+
+	_, err = w.Write(buffer.Bytes())
+	if err != nil {
+		fmt.Println("Не получилось отправить ответ:", err)
+	}
+}
+
+func SecondDecoderCheck(w http.ResponseWriter, bodyRequest io.ReadCloser, structToDecode any) bool {
+	decoder := json.NewDecoder(bodyRequest)
+
+	err := decoder.Decode(structToDecode)
+	if err != nil {
+		EncodeMessageAndCheckError(w, http.StatusBadRequest, Error{Text: "Bad Request"})
+		return false
+	}
+
+	var extraCheckDecode any
+	if err = decoder.Decode(&extraCheckDecode); err != io.EOF {
+		EncodeMessageAndCheckError(w, http.StatusBadRequest, Error{Text: "Bad Request"})
+		return false
+	}
+	return true
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.Router.ServeHTTP(w, r)
 }
@@ -32,35 +75,13 @@ func (h *Handler) GetAllTasks(w http.ResponseWriter, r *http.Request) {
 		return cmp.Compare(a.Id, b.Id)
 	})
 
-	var buffer bytes.Buffer
-
-	err := json.NewEncoder(&buffer).Encode(tasksIWantToSend)
-	if err != nil {
-		responseError := Error{Text: "Server Internal Error"}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		err = json.NewEncoder(w).Encode(responseError)
-
-		if err != nil {
-			fmt.Println("Не получилось отправить ошибку:", err)
-		}
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_, err = w.Write(buffer.Bytes())
-	if err != nil {
-		fmt.Println("Не получилось отправить ответ:", err)
-	}
-	return
+	EncodeMessageAndCheckError(w, http.StatusOK, tasksIWantToSend)
 }
 
 func (h *Handler) GetCertainTask(w http.ResponseWriter, r *http.Request) {
 	taskID, err := strconv.Atoi(mux.Vars(r)["id"])
 	if err != nil || taskID <= 0 {
-		http.Error(w, "Bad field ID", http.StatusBadRequest)
+		EncodeMessageAndCheckError(w, http.StatusBadRequest, Error{Text: "Bad Request"})
 		return
 	}
 
@@ -69,20 +90,14 @@ func (h *Handler) GetCertainTask(w http.ResponseWriter, r *http.Request) {
 
 	if ok == false {
 		h.Mu.Unlock()
-		http.Error(w, "Not Found", http.StatusNotFound)
+		EncodeMessageAndCheckError(w, http.StatusNotFound, Error{Text: "Not Found"})
 		return
 	}
 
+	copyOfTask := *taskWeNeedToReturn
 	h.Mu.Unlock()
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-
-	err = json.NewEncoder(w).Encode(taskWeNeedToReturn)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
+	EncodeMessageAndCheckError(w, http.StatusOK, copyOfTask)
 
 }
 
@@ -94,15 +109,13 @@ func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	var bodyRequest io.ReadCloser = r.Body
 	defer bodyRequest.Close()
 
-	err := json.NewDecoder(bodyRequest).Decode(&infoFromRequest)
-	if err != nil {
-		http.Error(w, "Bad Request", http.StatusBadRequest)
+	if SecondDecoderCheck(w, bodyRequest, &infoFromRequest) == false {
 		return
 	}
 
 	// Проверяем валидность полей
 	if strings.TrimSpace(infoFromRequest.Title) == "" {
-		http.Error(w, "Bad field Title", http.StatusBadRequest)
+		EncodeMessageAndCheckError(w, http.StatusBadRequest, Error{Text: "Bad field Title"})
 		return
 	}
 
@@ -117,16 +130,10 @@ func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	}
 	h.Tasks[newTask.Id] = newTask
 
+	copyTask := *newTask
 	h.Mu.Unlock()
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-
-	err = json.NewEncoder(w).Encode(newTask)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
+	EncodeMessageAndCheckError(w, http.StatusCreated, copyTask)
 
 }
 
@@ -134,7 +141,7 @@ func (h *Handler) ChangeTask(w http.ResponseWriter, r *http.Request) {
 
 	taskID, err := strconv.Atoi(mux.Vars(r)["id"])
 	if err != nil || taskID <= 0 {
-		http.Error(w, "Bad field ID", http.StatusBadRequest)
+		EncodeMessageAndCheckError(w, http.StatusBadRequest, Error{Text: "Bad field ID"})
 		return
 	}
 
@@ -146,14 +153,12 @@ func (h *Handler) ChangeTask(w http.ResponseWriter, r *http.Request) {
 	bodyRequest := r.Body
 	defer bodyRequest.Close()
 
-	err = json.NewDecoder(bodyRequest).Decode(&infoToChangeStruct)
-	if err != nil {
-		http.Error(w, "Bad Request", http.StatusBadRequest)
+	if SecondDecoderCheck(w, bodyRequest, &infoToChangeStruct) == false {
 		return
 	}
 
 	if infoToChangeStruct.Title == nil || infoToChangeStruct.Done == nil || strings.TrimSpace(*infoToChangeStruct.Title) == "" {
-		http.Error(w, "Bad Request", http.StatusBadRequest)
+		EncodeMessageAndCheckError(w, http.StatusBadRequest, Error{Text: "Bad Request"})
 		return
 	}
 
@@ -161,29 +166,24 @@ func (h *Handler) ChangeTask(w http.ResponseWriter, r *http.Request) {
 	var certainTaskToChange, ok = h.Tasks[taskID]
 	if !ok {
 		h.Mu.Unlock()
-		http.Error(w, "Not Found", http.StatusNotFound)
+		EncodeMessageAndCheckError(w, http.StatusNotFound, Error{Text: "Not Found"})
 		return
 	}
 
 	certainTaskToChange.Title = *infoToChangeStruct.Title
 	certainTaskToChange.Done = *infoToChangeStruct.Done
+
+	copyOfCertainTask := *certainTaskToChange
 	h.Mu.Unlock()
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-
-	err = json.NewEncoder(w).Encode(certainTaskToChange)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusOK)
-		return
-	}
+	EncodeMessageAndCheckError(w, http.StatusOK, copyOfCertainTask)
 
 }
 
 func (h *Handler) DeleteTask(w http.ResponseWriter, r *http.Request) {
 	taskID, err := strconv.Atoi(mux.Vars(r)["id"])
 	if err != nil || taskID <= 0 {
-		http.Error(w, "Bad field ID", http.StatusBadRequest)
+		EncodeMessageAndCheckError(w, http.StatusBadRequest, Error{Text: "Bad field ID"})
 		return
 	}
 
@@ -193,12 +193,13 @@ func (h *Handler) DeleteTask(w http.ResponseWriter, r *http.Request) {
 
 	if !ok {
 		h.Mu.Unlock()
-		http.Error(w, "Not Found", http.StatusNotFound)
+		EncodeMessageAndCheckError(w, http.StatusNotFound, Error{Text: "Not Found"})
 		return
 	}
 	delete(h.Tasks, taskID)
 	h.Mu.Unlock()
 
+	// Не вызываем функцию, которая заворачивает сообщение в JSON, потому что и заворачивать нечего
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusNoContent)
 
