@@ -19,13 +19,14 @@ func main() {
 		Tasks:  tasks,
 		Mu:     mu,
 		Router: router,
+		LastID: 0, // ID последней созданной задачи
 	}
 
 	router.HandleFunc("/tasks/", myHandler.GetAllTasks).Methods("GET")
 	router.HandleFunc("/tasks/{id}", myHandler.GetCertainTask).Methods("GET")
 	router.HandleFunc("/tasks/", myHandler.CreateTask).Methods("POST")
 	router.HandleFunc("/tasks/{id}", myHandler.ChangeTask).Methods("PUT")
-	router.HandleFunc("tasks/{id}", myHandler.DeleteTask).Methods("DELETE")
+	router.HandleFunc("/tasks/{id}", myHandler.DeleteTask).Methods("DELETE")
 
 	myServer := http.Server{
 		Addr:         ":8080",

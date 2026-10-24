@@ -13,11 +13,12 @@ type Task struct {
 }
 
 type Error struct {
-	Text string
+	Text string `json:"error"`
 }
 
 type Handler struct {
 	Tasks  map[int]*Task
 	Mu     *sync.Mutex
 	Router *mux.Router
+	LastID int
 }
