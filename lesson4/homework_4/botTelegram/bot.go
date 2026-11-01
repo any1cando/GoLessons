@@ -18,9 +18,47 @@ import (
 )
 
 const (
-	BotToken   = "8897544923:AAF5nOsxJgwcRr4UfmIovzvy-0RceTCJEcw"
-	WebhookURL = "https://894ba73c97c14cab-151-242-104-153.serveousercontent.com"
+	BotToken           = "8897544923:AAF5nOsxJgwcRr4UfmIovzvy-0RceTCJEcw"
+	WebhookURL         = "https://7a025ffe2c7a030f-151-242-104-153.serveousercontent.com"
+	textForCommandHelp = `Доступные команды:
+			/tasks — показать все задачи
+			/new Название задачи — создать задачу
+			/assign_ID — назначить задачу себе
+			/unassign_ID — снять с себя задачу
+			/done_ID — выполнить задачу и перевести ее в статус "ВЫПОЛНЕНО"
+			/undone_ID — отменить выполнение задачи и перевести ее в статус "В ПРОЦЕССЕ"
+			/resolve_ID — завершить задачу и удалить её из списка
+			/my — показать задачи, назначенные мне
+			/owner — показать задачи, созданные мной
+
+			Вместо ID укажи номер задачи, например: /assign_1`
 )
+
+func convertSliceTasksToString(tasks []handler.TaskForHW) string {
+	var tasksToShowAsString strings.Builder
+	tasksToShowAsString.WriteString("Все задачи:\n")
+
+	for _, task := range tasks {
+		// Создали строку и нормально распарсили ее в "string"
+		var taskToAdd string
+		if task.Status {
+			if task.AssigneeID != 0 {
+				taskToAdd = fmt.Sprintf("ID задачи -%d\nЗадачу завел пользователь с ID %d\nЗадача назначена на пользователя с ID '%d'\nОписание задачи: %s\nСтатус задачи: ВЫПОЛНЕНО", task.ID, task.OwnerID, task.AssigneeID, task.Title)
+			} else {
+				taskToAdd = fmt.Sprintf("ID задачи -%d\nЗадачу завел пользователь с ID %d\nЗадача ни на кого не назначена\nОписание задачи: %s\nСтатус задачи: ВЫПОЛНЕНО", task.ID, task.OwnerID, task.Title)
+			}
+		} else {
+			if task.AssigneeID != 0 {
+				taskToAdd = fmt.Sprintf("ID задачи -%d\nЗадачу завел пользователь с ID %d\nЗадача назначена на пользователя с ID '%d'\nОписание задачи: %s\nСтатус задачи: В ПРОЦЕССЕ", task.ID, task.OwnerID, task.AssigneeID, task.Title)
+			} else {
+				taskToAdd = fmt.Sprintf("ID задачи -%d\nЗадачу завел пользователь с ID %d\nЗадача ни на кого не назначена\nОписание задачи: %s\nСтатус задачи: В ПРОЦЕССЕ", task.ID, task.OwnerID, task.Title)
+			}
+		}
+		tasksToShowAsString.WriteString(taskToAdd)
+		tasksToShowAsString.WriteString("\n\n===\n\n")
+	}
+	return tasksToShowAsString.String()
+}
 
 func sendTextToTelegram(botTG *tgbotapi.BotAPI, update tgbotapi.Update, title string) {
 	reply := tgbotapi.NewMessage(update.Message.Chat.ID, title)
@@ -115,19 +153,6 @@ func main() {
 
 		switch command {
 		case "/help":
-			textForCommandHelp := `Доступные команды:
-			/tasks — показать все задачи
-			/new Название задачи — создать задачу
-			/assign_ID — назначить задачу себе
-			/unassign_ID — снять с себя задачу
-			/done_ID — выполнить задачу и перевести ее в статус "ВЫПОЛНЕНО"
-			/undone_ID — отменить выполнение задачи и перевести ее в статус "В ПРОЦЕССЕ"
-			/resolve_ID — завершить задачу и удалить её из списка
-			/my — показать задачи, назначенные мне
-			/owner — показать задачи, созданные мной
-
-			Вместо ID укажи номер задачи, например: /assign_1`
-
 			sendTextToTelegram(bot, update, textForCommandHelp)
 
 		case "/new":
@@ -135,9 +160,9 @@ func main() {
 				newCreatedTask := handlerForHW.CreateNewTask(title, update.Message.From.ID)
 				var taskAsText string
 				if newCreatedTask.Status {
-					taskAsText = fmt.Sprintf("ID задачи - %d\nЗадача заведена пользователем с ID %d\nВыполнение задачи назначено на пользователя с ID: %d\nОписание задачи: %s\nСтатус задачи: ВЫПОЛНЕНО", newCreatedTask.ID, newCreatedTask.OwnerID, newCreatedTask.AssigneeID, newCreatedTask.Title)
+					taskAsText = fmt.Sprintf("ID задачи - %d\nЗадача заведена пользователем с ID %d\nОписание задачи: %s\nСтатус задачи: ВЫПОЛНЕНО", newCreatedTask.ID, newCreatedTask.OwnerID, newCreatedTask.Title)
 				} else {
-					taskAsText = fmt.Sprintf("ID задачи - %d\nЗадача заведена пользователем с ID %d\nВыполнение задачи назначено на пользователя с ID: %d\nОписание задачи: %s\nСтатус задачи: В ПРОЦЕССЕ", newCreatedTask.ID, newCreatedTask.OwnerID, newCreatedTask.AssigneeID, newCreatedTask.Title)
+					taskAsText = fmt.Sprintf("ID задачи - %d\nЗадача заведена пользователем с ID %d\nОписание задачи: %s\nСтатус задачи: В ПРОЦЕССЕ", newCreatedTask.ID, newCreatedTask.OwnerID, newCreatedTask.Title)
 				}
 
 				sendTextToTelegram(bot, update, taskAsText)
@@ -151,22 +176,10 @@ func main() {
 			if len(tasksToShow) == 0 {
 				sendTextToTelegram(bot, update, "На данный момент в списке нет задач")
 			} else {
-				var tasksToShowAsString strings.Builder
-				tasksToShowAsString.WriteString("Все задачи:\n")
-
-				for _, task := range tasksToShow {
-					// Создали строку и нормально распарсили ее в "string"
-					var taskToAdd string
-					if task.Status {
-						taskToAdd = fmt.Sprintf("ID задачи -%d\nЗадачу завел пользователь с ID %d\nЗадача назначена на пользователя с ID '%d'\nОписание задачи: %s\nСтатус задачи: ВЫПОЛНЕНО", task.ID, task.OwnerID, task.AssigneeID, task.Title)
-					} else {
-						taskToAdd = fmt.Sprintf("ID задачи -%d\nЗадачу завел пользователь с ID %d\nЗадача назначена на пользователя с ID '%d'\nОписание задачи: %s\nСтатус задачи: В ПРОЦЕССЕ", task.ID, task.OwnerID, task.AssigneeID, task.Title)
-					}
-					tasksToShowAsString.WriteString(taskToAdd)
-					tasksToShowAsString.WriteString("\n\n===\n\n")
-				}
-				sendTextToTelegram(bot, update, tasksToShowAsString.String())
+				tasksToShowAsString := convertSliceTasksToString(tasksToShow)
+				sendTextToTelegram(bot, update, tasksToShowAsString)
 			}
+
 		default:
 			if idText, ok := strings.CutPrefix(command, "/assign_"); ok {
 				taskID, err := strconv.Atoi(idText)
@@ -181,6 +194,85 @@ func main() {
 				} else {
 					sendTextToTelegram(bot, update, "Ошибка. Задача не переназначена. Обратитесь к команде /help")
 				}
+
+			} else if idText, ok = strings.CutPrefix(command, "/unassign_"); ok {
+				taskID, err := strconv.Atoi(idText)
+				if err != nil || taskID <= 0 || title != "" {
+					sendTextToTelegram(bot, update, "Ошибка. Команда /unassign_ID используется не так. Обратитесь к команде /help")
+					continue
+				}
+				result := handlerForHW.UnassigneeTask(taskID)
+				if result {
+					sendTextToTelegram(bot, update, "Задача больше ни на ком не весит")
+				} else {
+					sendTextToTelegram(bot, update, "Ошибка. Поле Assignee не было сброшено. Обратитесь к команде /help")
+				}
+
+			} else if idText, ok = strings.CutPrefix(command, "/resolve_"); ok {
+				taskID, err := strconv.Atoi(idText)
+				if err != nil || taskID <= 0 || title != "" {
+					sendTextToTelegram(bot, update, "Ошибка. Команда /resolve_ID используется не так. Обратитесь к команде /help")
+					continue
+				}
+				result := handlerForHW.ResolveTask(taskID)
+				if result {
+					sendTextToTelegram(bot, update, "Задача успешно решена и удалена из списка")
+				} else {
+					sendTextToTelegram(bot, update, "Не получилось удалить задачу из общего списка. Обратитесь к команде /help")
+				}
+
+			} else if command == "/my" {
+				if title != "" {
+					sendTextToTelegram(bot, update, "Ошибка. Команда /my используется не так. Обратитесь к команде /help")
+					continue
+				}
+				tasksForUser := handlerForHW.ShowUserHisAssigneeTasks(update.Message.From.ID)
+				if len(tasksForUser) == 0 {
+					sendTextToTelegram(bot, update, "На данный момент в списке нет задач")
+				} else {
+					tasksToShowAsString := convertSliceTasksToString(tasksForUser)
+					sendTextToTelegram(bot, update, tasksToShowAsString)
+				}
+
+			} else if command == "/owner" {
+				if title != "" {
+					sendTextToTelegram(bot, update, "Ошибка. Команда /owner используется не так. Обратитесь к команде /help")
+					continue
+				}
+				tasksForUser := handlerForHW.ShowUserHisOwnTasks(update.Message.From.ID)
+				if len(tasksForUser) == 0 {
+					sendTextToTelegram(bot, update, "На данный момент в списке нет задач")
+				} else {
+					tasksToShowAsString := convertSliceTasksToString(tasksForUser)
+					sendTextToTelegram(bot, update, tasksToShowAsString)
+				}
+
+			} else if idText, ok = strings.CutPrefix(command, "/done_"); ok {
+				taskID, err := strconv.Atoi(idText)
+				if err != nil || taskID <= 0 || title != "" {
+					sendTextToTelegram(bot, update, "Ошибка. Команда /done используется не так. Обратитесь к команде /help")
+					continue
+				}
+				result := handlerForHW.MakeTaskDone(taskID)
+				if result {
+					sendTextToTelegram(bot, update, fmt.Sprintf("Задача с ID %d сделана! Статус: 'ВЫПОЛНЕНО'", taskID))
+				} else {
+					sendTextToTelegram(bot, update, fmt.Sprintf("Ошибка. Задача с ID %d не была переведена в статус 'ВЫПОЛНЕНО'. Обратитесь к команде /help", taskID))
+				}
+
+			} else if idText, ok = strings.CutPrefix(command, "/undone_"); ok {
+				taskID, err := strconv.Atoi(idText)
+				if err != nil || taskID <= 0 || title != "" {
+					sendTextToTelegram(bot, update, "Ошибка. Команда /undone используется не так. Обратитесь к команде /help")
+					continue
+				}
+				result := handlerForHW.MakeTaskUndone(taskID)
+				if result {
+					sendTextToTelegram(bot, update, fmt.Sprintf("Задача с ID %d переведена в статус 'В ПРОЦЕССЕ'", taskID))
+				} else {
+					sendTextToTelegram(bot, update, fmt.Sprintf("Ошибка. Задача с ID %d не была переведена в статус 'В ПРОЦЕССЕ'. Обратитесь к команде /help", taskID))
+				}
+
 			} else {
 				sendTextToTelegram(bot, update, "Непонятная команда. Чтобы отобразить список существующих команд, напишите /help")
 			}
